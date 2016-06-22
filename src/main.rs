@@ -1,7 +1,3 @@
-extern crate git2;
-
-use git2::Repository;
-
 use std::str;
 use std::env;
 use std::process;
@@ -14,6 +10,10 @@ fn main() {
     if env::args().count() <= 1 {
         println!("must pass arguments");
         process::exit(3);
+    }
+
+    if !Path::new(".git").exists() {
+        process::exit(2);
     }
 
     let argstring = env::args().nth(1).unwrap();
@@ -34,19 +34,32 @@ fn main() {
 }
 
 fn branch() -> Option<String> {
-    let repo = Repository::open(".").ok();
-    repo.and_then(|repo| {
-        repo.head().ok().and_then(|head| {
-            match head.symbolic_target() {
-                Some(branchname) => Some(String::from(branch_from_refname(branchname))),
-                None => Some(String::from(branch_from_refname(head.name().unwrap()))),
-            }
-        })
-    })
+    let mut f = match File::open(".git/HEAD") {
+        Ok(file) => file,
+        Err(_) => return None,
+    };
+
+    let mut s = String::new();
+
+    match f.read_to_string(&mut s) {
+        Err(_) => return None,
+        _ => (),
+    }
+
+    Some(branch_from_refname(&s))
 }
 
-fn branch_from_refname(refname: &str) -> &str {
-    refname.split("/").last().unwrap()
+fn branch_from_refname(refname: &String) -> String {
+    let trimmed = refname.trim();
+    let last = trimmed.split("/").last().unwrap();
+
+    if last.len() != trimmed.len() {
+        return String::from(last);
+    }
+
+    let mut commit = refname[..7].to_string();
+    commit.push_str("...");
+    commit
 }
 
 fn stash_depth() -> Option<u64> {
@@ -58,10 +71,7 @@ fn stash_depth() -> Option<u64> {
          * we are, the stash depth is zero; if we're not, there is no stash
          * (because there is no git repo).
          */
-        Err(_) => match Path::new(".git").exists() {
-            true => return Some(0),
-            false => return None,
-        }
+        Err(_) => return Some(0),
     };
 
     let reader = BufReader::new(f);
