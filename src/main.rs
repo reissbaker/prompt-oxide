@@ -6,72 +6,76 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
+const ERR_NOTGIT: i32 = 2;
+const ERR_BROKEN: i32 = 3;
+
 fn main() {
     if env::args().count() <= 1 {
         println!("must pass arguments");
-        process::exit(3);
+        process::exit(ERR_BROKEN);
     }
 
     if !Path::new(".git").exists() {
-        process::exit(2);
+        process::exit(ERR_NOTGIT);
     }
 
     let argstring = env::args().nth(1).unwrap();
     let arg = argstring.as_str();
     let output = match arg {
-        "branch" => branch(),
-        "stash-depth" => stash_depth().map(|depth| format!("{}", depth)),
+        "branch" => branch().map(|b| *b),
+        "stash-depth" => Ok(format!("{}", stash_depth())),
+        "combo" => {
+            match branch() {
+                Ok(branchbox) => {
+                    let mut string = String::from("(");
+                    string.push_str(&*branchbox);
+                    string.push_str(")");
+                    let depth = stash_depth();
+                    if depth > 0 {
+                        string.push_str(&format!(" [{}]", depth));
+                    }
+                    Ok(string)
+                },
+                Err(e) => Err(e),
+            }
+        },
         _ => {
             println!("unknown argument {}", arg);
-            process::exit(3);
+            process::exit(ERR_BROKEN);
         }
     };
 
     match output {
-        Some(string) => println!("{}", string),
-        None => process::exit(2),
+        Ok(string) => println!("{}", string),
+        Err(_) => process::exit(ERR_BROKEN),
     }
 }
 
-fn branch() -> Option<String> {
-    let mut f = match File::open(".git/HEAD") {
-        Ok(file) => file,
-        Err(_) => return None,
-    };
-
+fn branch() -> Result<Box<String>, std::io::Error> {
+    let mut f = try!(File::open(".git/HEAD"));
     let mut s = String::new();
+    try!(f.read_to_string(&mut s));
 
-    match f.read_to_string(&mut s) {
-        Err(_) => return None,
-        _ => (),
-    }
-
-    Some(branch_from_refname(&s))
+    Ok(branch_from_refname(&s))
 }
 
-fn branch_from_refname(refname: &String) -> String {
+fn branch_from_refname(refname: &String) -> Box<String> {
     let trimmed = refname.trim();
     let last = trimmed.split("/").last().unwrap();
 
     if last.len() != trimmed.len() {
-        return String::from(last);
+        return Box::new(String::from(last));
     }
 
     let mut commit = refname[..7].to_string();
     commit.push_str("...");
-    commit
+    Box::new(commit)
 }
 
-fn stash_depth() -> Option<u64> {
+fn stash_depth() -> u64 {
     let f = match File::open(".git/refs/stash") {
         Ok(file) => file,
-
-        /*
-         * If opening this file fails, check if we're in a git repo at all. If
-         * we are, the stash depth is zero; if we're not, there is no stash
-         * (because there is no git repo).
-         */
-        Err(_) => return Some(0),
+        Err(_) => return 0,
     };
 
     let reader = BufReader::new(f);
@@ -80,5 +84,5 @@ fn stash_depth() -> Option<u64> {
         stash_size += 1;
     }
 
-    Some(stash_size)
+    stash_size
 }
