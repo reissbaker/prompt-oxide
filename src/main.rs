@@ -61,10 +61,23 @@ fn branch() -> Result<Box<String>, std::io::Error> {
 
 fn branch_from_refname(refname: &String) -> Box<String> {
     let trimmed = refname.trim();
-    let last = trimmed.split("/").last().unwrap();
+    let pieces = trimmed.split("/").collect::<Vec<&str>>();
 
-    if last.len() != trimmed.len() {
-        return Box::new(String::from(last));
+    if pieces.len() > 2 {
+        let mut out = String::new();
+
+        for i in 2..(pieces.len() - 1) {
+            out.push_str(pieces[i]);
+            out.push('/');
+        }
+
+        out.push_str(pieces[pieces.len() - 1]);
+
+        return Box::new(out);
+    }
+
+    if pieces.len() > 1 {
+        return Box::new(String::from(trimmed));
     }
 
     let mut commit = refname[..7].to_string();
